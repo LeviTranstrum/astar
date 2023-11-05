@@ -11,10 +11,13 @@ image = cv2.imread('./gray_map.png')
 tile_width, tile_height = 16, 16  # tile size
 
 def load_known_tiles(file_path):
-    """Load the known tiles dictionary from a JSON file."""
+    """Load the known tiles dictionary with pixel data from a JSON file."""
     try:
         with open(file_path, 'r') as file:
-            known_tiles = json.load(file)
+            # Load the data from JSON
+            data = json.load(file)
+            # Convert lists back to numpy arrays
+            known_tiles = {tile_type: [np.array(tile) for tile in tiles] for tile_type, tiles in data.items()}
             return known_tiles
     except FileNotFoundError:
         print(f"No existing tile file found. Starting with an empty dictionary.")
@@ -32,35 +35,47 @@ def image_hash(image):
     # Compute the hash of the array
     return hashlib.sha256(flattened).hexdigest()
 
+def is_similar(tile_image, known_tile_image):
+    errors = 0
+    for i in range(tile_image.shape[0]):
+        for j in range(tile_image.shape[1]):
+            if tile_image[i][j] != known_tile_image[i][j]:
+                return False
+
 def recognize_tile(tile_image, known_tiles):
-    """Recognize the tile by comparing its hash to the list of known tile hashes."""
-    # Compute the hash for the current tile
-    tile_hash = image_hash(tile_image)
-    
-    # Check if the hash is in any of the lists in known_tiles
-    for tile_type, tile_data in known_tiles.items():
-        if tile_hash in tile_data['hashes']:
-            return tile_type
-    # If the tile is not recognized, return None or some indicator of unknown tile
-    return None
+    """Recognize the tile by comparing its pixels to the list of known tiles."""
+
+    recognized_tile_type = None
+
+    # Compare the tile image with each known tile
+    for tile_type, tiles_data in known_tiles.items():
+        for known_tile_data in tiles_data:
+            known_tile_image = np.array(known_tile_data)
+            # Here you would call your similarity function
+            difference = is_similar(tile_image, known_tile_image)
+            if difference < min_difference:
+                min_difference = difference
+                recognized_tile_type = tile_type
+
+    return recognized_tile_type
 
 
-def add_new_tile_hash(tile_type, new_hash, known_tiles):
-    # If the tile type already exists, append the new hash to its list
+def add_new_tile_data(tile_type, tile_data, known_tiles):
+    """Add the pixel data for a new tile type."""
     if tile_type in known_tiles:
-        # Check if the new hash is already in the list to avoid duplicates
-        if new_hash not in known_tiles[tile_type]['hashes']:
-            known_tiles[tile_type]['hashes'].append(new_hash)
+        # Add the new tile data to the existing list for this tile type
+        known_tiles[tile_type].append(tile_data.tolist())  # Convert numpy array to list
     else:
-        # Otherwise, create a new entry with the tile type as key,
-        # and the value as a new dictionary containing a list of hashes
-        known_tiles[tile_type] = {'hashes': [new_hash]}
+        # Create a new entry for this tile type with the new tile data
+        known_tiles[tile_type] = [tile_data.tolist()]  # Convert numpy array to list
 
 def save_json(data, file_path):
-    """Save the known tiles dictionary to a JSON file with indentation for readability."""
+    """Save the known tiles dictionary with pixel data to a JSON file."""
+    # Convert numpy arrays to lists for JSON serialization
+    serializable_data = {tile_type: [tile.tolist() for tile in tiles] for tile_type, tiles in data.items()}
+    
     with open(file_path, 'w') as file:
-        # Use 'indent' to make the file human-readable
-        json.dump(data, file, indent=4)
+        json.dump(serializable_data, file, indent=4)
 
 def show_large_image(title, image, scale=16):
     """Show an image in a larger resolution."""
@@ -123,14 +138,13 @@ for y in range(0, image.shape[0], tile_height):
             cv2.waitKey(0)  # Wait for key press
             # Manual input for tile type
             tile_type = input('Enter tile type: ')
-            add_new_tile_hash(tile_type, image_hash(tile), known_tiles)
+            add_new_tile_data(tile_type, tile, known_tiles)  # Pass the numpy array of the tile
             row.append(tile_type)
-            
             # Save the tile to the known tiles dictionary
-            save_json(known_tiles, 'known_tiles.json')  # Save the updated dictionary
-            
+            save_json(known_tiles, 'known_tiles.json')  # Save the updated dictionary            
             # Stop the loop
             break
+
     map_array.append(row)
     if 'unknown' in row:
         break  # Stop if unknown tile encountered
